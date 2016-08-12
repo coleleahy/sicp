@@ -1,0 +1,25 @@
+;; Constructor
+(define (make-register name)
+  (let ((contents '*unassigned*)
+        (tracing 0))
+    (define (dispatch message)
+      (cond ((eq? message 'get) contents)
+            ((eq? message 'toggle-tracing)
+             (if (= 0 tracing)
+                 (set! tracing 1)
+                 (set! tracing 0))
+             tracing)
+            ((eq? message 'set)
+             (lambda (value)
+               (set! contents value)
+               (if (= 1 tracing)
+                   (pp (list 'register-contents name contents)))))
+            (else (error "Unknown request -- REGISTER" message))))
+    dispatch))
+
+;; Interface procedures
+(define (get-contents register)
+  (register 'get))
+
+(define (set-contents! register value)
+  ((register 'set) value))

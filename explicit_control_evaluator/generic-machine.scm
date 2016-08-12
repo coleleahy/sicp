@@ -1,0 +1,108 @@
+(define (make-new-machine)
+  (let* ((pc (make-register 'pc))
+         (flag (make-register 'flag))
+         (register-table 
+          (list (list 'pc pc)
+                (list 'flag flag)))
+         (stack-table '())
+         (operations-table primitive-operations-table)
+         (instruction-sequence '*waiting-for-input*)
+         (labels '*waiting-for-input*)
+         (inst-counter 0)
+         (inst-tracing 'off)
+         (label-tracing 'off))
+    (define (allocate-register name)
+      (if (assoc name register-table)
+          (error "Multiply defined register -- MACHINE" name)
+          (set! register-table
+            (cons (list name (make-register name))
+                  register-table)))
+      'register-allocated)
+    (define (allocate-register-stack name)
+      (if (assoc name stack-table)
+          (error "Multiply defined stack -- MACHINE" name)
+          (set! stack-table
+            (cons (list name (make-stack)) stack-table)))
+      'stack-allocated)
+    (define (get-register name)
+      (let ((val (assoc name register-table)))
+        (if val
+            (cadr val)
+            (error "Unknown register:" name))))
+    (define (get-register-stack name)
+      (let ((val (assoc name stack-table)))
+        (if val
+            (cadr val)
+            (error "Unknown stack:" name))))
+    (define (execute)
+      (let ((insts (get-contents pc)))
+        (if (null? insts)
+            'done
+            (begin
+              (if (eq? 'on label-tracing)
+                  (let ((preceding-labels
+                         (map car
+                              (filter
+                               (lambda (lbl) (equal? (cdr lbl) insts))
+                               labels))))
+                    (if (pair? preceding-labels)
+                        (for-each pp preceding-labels))))
+              (let ((inst (car insts)))
+                (if (eq? 'on inst-tracing)
+                    (pp (instruction-text inst)))
+                ((instruction-execution-proc inst))
+                (set! inst-counter (+ 1 inst-counter)))
+              (execute)))))
+    (define (dispatch message)
+      (cond ((eq? message 'install-controller)
+             (lambda (controller)
+               (let ((required-registers (required-registers controller)))
+                 (for-each
+                  (lambda (reg-name)
+                    (allocate-register reg-name)
+                    (allocate-register-stack reg-name))
+                  required-registers))
+               (let ((assembled-controller (assemble controller dispatch)))
+                 (set! instruction-sequence
+                   (assembled-instructions assembled-controller))
+                 (set! labels
+                   (assembled-labels assembled-controller)))))
+            ((eq? message 'start)
+             (set-contents! pc instruction-sequence)
+             (execute))
+            ((eq? message 'get-register-stack) get-register-stack)
+            ((eq? message 'get-register) get-register)
+            ((eq? message 'operations-table) operations-table)
+            ((eq? message 'stack-table) stack-table)
+            ((eq? message 'toggle-label-tracing)
+             (if (eq? 'off label-tracing)
+                 (set! label-tracing 'on)
+                 (set! label-tracing 'of))
+             label-tracing)
+            ((eq? message 'toggle-inst-tracing)
+             (if (eq? 'off inst-tracing)
+                 (set! inst-tracing 'on)
+                 (set! inst-tracing 'off))
+             inst-tracing)
+            (else (error "Unknown request -- MACHINE" message))))
+    dispatch))
+
+;; Convenient interface procedures
+(define (start machine)
+  (machine 'start))
+
+(define (get-register-stack machine reg-name)
+  ((machine 'get-register-stack) reg-name))
+
+(define (get-register machine reg-name)
+  ((machine 'get-register) reg-name))
+
+(define (get-register-contents machine reg-name)
+  (get-contents (get-register machine reg-name)))
+
+(define (set-register-contents! machine reg-name val)
+  (set-contents! (get-register machine reg-name) val)
+  'done)
+
+(define (toggle-register-tracing! machine reg-name)
+  ((get-register machine reg-name) 'toggle-tracing))
